@@ -14,6 +14,8 @@ import threading
 import smtplib
 from email.message import EmailMessage
 import socket
+import hashlib
+import hmac
 from zoneinfo import ZoneInfo
 
 LOCAL_TZ = ZoneInfo("Asia/Yerevan")
@@ -27,6 +29,29 @@ SMTP_PORT = int(os.environ.get("SMTP_PORT", 465))
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL", "")
+
+ADMIN_LOGIN = os.environ.get("ADMIN_LOGIN", "")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+AUTH_SECRET = os.environ.get("AUTH_SECRET", hashlib.sha256(f"{ADMIN_LOGIN}:{ADMIN_PASSWORD}".encode("utf-8")).hexdigest())
+AUTH_COOKIE_NAME = "callback_auth"
+
+
+def make_auth_token():
+    msg = f"{ADMIN_LOGIN}:{ADMIN_PASSWORD}".encode("utf-8")
+    return hmac.new(AUTH_SECRET.encode("utf-8"), msg, hashlib.sha256).hexdigest()
+
+
+def is_authenticated(handler):
+    cookie_header = handler.headers.get("Cookie", "")
+    expected = make_auth_token()
+    for part in cookie_header.split(";"):
+        part = part.strip()
+        if part.startswith(AUTH_COOKIE_NAME + "="):
+            val = part.split("=", 1)[1]
+            if hmac.compare_digest(val, expected):
+                return True
+    return False
+
 
 # ====================== IN-MEMORY (RAM) STORAGE ======================
 _callbacks = []
@@ -99,6 +124,40 @@ def send_mail(phone):
 # ====================== HTTP HANDLER ======================
 class CallbackHandler(BaseHTTPRequestHandler):
 
+    def render_login(self, error_msg=""):
+        err_html = f'<p style="color:#d9534f;">{html_lib.escape(error_msg)}</p>' if error_msg else ""
+        page = f"""<!DOCTYPE html>
+<html>
+<head>
+  <title>Login</title>
+  <meta charset="UTF-8">
+  <style>
+    body {{ font-family: Arial, sans-serif; margin: 60px; background: #f5f5f5; }}
+    .box {{ width: 320px; background: white; padding: 24px; border: 1px solid #ccc; border-radius: 4px; }}
+    input {{ width: 100%; box-sizing: border-box; padding: 9px; margin: 6px 0 14px 0; border: 1px solid #ccc; border-radius: 4px; }}
+    button {{ width: 100%; background: #337ab7; color: white; border: none; padding: 10px; cursor: pointer; border-radius: 4px; }}
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h2>Login</h2>
+    {err_html}
+    <form method="POST" action="/login">
+      <label for="username">Login</label>
+      <input type="text" id="username" name="username" required autofocus>
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" required>
+      <button type="submit">Log in</button>
+    </form>
+  </div>
+</body>
+</html>
+"""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(page.encode("utf-8"))
+
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
@@ -118,7 +177,15 @@ class CallbackHandler(BaseHTTPRequestHandler):
             self.wfile.write(b"OK")
             return
 
+        if path == "/login":
+            self.render_login()
+            return
+
         if path == "/":
+            if not is_authenticated(self):
+                self.render_login()
+                return
+
             callbacks = get_callbacks()
 
             html = """<!DOCTYPE html>
@@ -183,7 +250,26 @@ class CallbackHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
 
+        if path == "/login":
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length).decode("utf-8")
+            params = parse_qs(body)
+            username = params.get("username", [""])[0]
+            password = params.get("password", [""])[0]
+            if hmac.compare_digest(username, ADMIN_LOGIN) and hmac.compare_digest(password, ADMIN_PASSWORD):
+                token = make_auth_token()
+                self.send_response(303)
+                self.send_header("Set-Cookie", f"{AUTH_COOKIE_NAME}={token}; Path=/; HttpOnly; SameSite=Lax")
+                self.send_header("Location", "/")
+                self.end_headers()
+            else:
+                self.render_login("Invalid login or password")
+            return
+
         if path == "/delete":
+            if not is_authenticated(self):
+                self.render_login()
+                return
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length).decode("utf-8")
             params = parse_qs(body)
