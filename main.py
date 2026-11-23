@@ -119,7 +119,7 @@ class CallbackHandler(BaseHTTPRequestHandler):
   </style>
 </head>
 <body>
-  <h1>Callback Numbers (In Memory)</h1>
+  <h1>Callback Numbers</h1>
   <table>
     <tr>
       <th>Phone</th>
