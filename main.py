@@ -59,6 +59,10 @@ def delete_callback(callback_id):
 
 # ====================== MAIL SENDING ======================
 def send_mail(phone):
+    if not SENDER_EMAIL or not SMTP_PASSWORD or not RECEIVER_EMAIL:
+        print("Failed to send email: missing SENDER_EMAIL, SMTP_PASSWORD, or RECEIVER_EMAIL", flush=True)
+        return
+
     content = f"Զանգի պատվեր՝ {phone}"
     msg = EmailMessage()
     msg["Subject"] = content
@@ -67,12 +71,20 @@ def send_mail(phone):
     msg.set_content(content)
 
     try:
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15) as server:
-            server.login(SENDER_EMAIL, SMTP_PASSWORD)
-            server.send_message(msg)
+        if SMTP_PORT == 587:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(SENDER_EMAIL, SMTP_PASSWORD)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15) as server:
+                server.login(SENDER_EMAIL, SMTP_PASSWORD)
+                server.send_message(msg)
         print("Email sent successfully!", flush=True)
     except Exception as e:
-        print(f"Failed to send email: {e}", flush=True)
+        print(f"Failed to send email: {type(e).__name__}: {e}", flush=True)
 
 
 # ====================== HTTP HANDLER ======================
