@@ -13,6 +13,8 @@ import html as html_lib
 import threading
 import smtplib
 from email.message import EmailMessage
+import socket
+
 
 # ====================== CONFIG ======================
 PORT = int(os.environ.get("PORT", 8090))
@@ -71,17 +73,21 @@ def send_mail(phone):
     msg.set_content(content)
 
     try:
+        # Resolve IPv4 address explicitly to avoid IPv6 [Errno 101] Network is unreachable
+        ipv4_host = socket.getaddrinfo(SMTP_HOST, SMTP_PORT, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
+
         if SMTP_PORT == 587:
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
+            with smtplib.SMTP(ipv4_host, SMTP_PORT, timeout=15) as server:
                 server.ehlo()
                 server.starttls()
                 server.ehlo()
                 server.login(SENDER_EMAIL, SMTP_PASSWORD)
                 server.send_message(msg)
         else:
-            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15) as server:
+            with smtplib.SMTP_SSL(ipv4_host, SMTP_PORT, timeout=15) as server:
                 server.login(SENDER_EMAIL, SMTP_PASSWORD)
                 server.send_message(msg)
+
         print("Email sent successfully!", flush=True)
     except Exception as e:
         print(f"Failed to send email: {type(e).__name__}: {e}", flush=True)
