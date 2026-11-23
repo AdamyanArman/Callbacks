@@ -14,6 +14,9 @@ import threading
 import smtplib
 from email.message import EmailMessage
 import socket
+from zoneinfo import ZoneInfo
+
+LOCAL_TZ = ZoneInfo("Asia/Yerevan")
 
 
 # ====================== CONFIG ======================
@@ -37,7 +40,7 @@ def save_callback(phone):
         row = {
             "id": _next_id,
             "phone": phone,
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "created_at": datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S")
         }
         _next_id += 1
         _callbacks.append(row)
@@ -108,7 +111,7 @@ class CallbackHandler(BaseHTTPRequestHandler):
             if phone:
                 save_callback(phone)
                 print("Phone:", phone, flush=True)
-                send_mail(phone)
+                #send_mail(phone)
 
             self.send_response(200)
             self.end_headers()
